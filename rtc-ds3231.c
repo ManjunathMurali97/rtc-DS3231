@@ -58,14 +58,7 @@ static const struct regmap_config regmap_config = {
 	.val_bits=8,
 };
 
-
-
-
-
-
-//////////////////////////////////////////////////////////////
-
-
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 static int ds3231_get_time(struct device *dev , struct rtc_time *t)
 {
@@ -106,7 +99,6 @@ static int ds3231_get_time(struct device *dev , struct rtc_time *t)
 			t->tm_mon, t->tm_year, t->tm_wday);
 
 	return 0;
-
 }
 
 
@@ -148,8 +140,6 @@ static int ds3231_set_time(struct device *dev, struct rtc_time *t)
 	}
 
 	return 0;
-
-
 }
 
 
@@ -161,7 +151,7 @@ static const struct rtc_class_ops ds3231_rtc_ops = {
 
 
 static const struct i2c_device_id ds3231_i2c_id[] = {
-	{"ds3231", ds3231},
+	{"ds3231", 0 },
 	{},
 };
 MODULE_DEVICE_TABLE( i2c , ds3231_i2c_id);
@@ -198,8 +188,6 @@ struct i2c_driver ds3231_driver={
 	.probe		=	ds3231_probe,
 	.id_table	=	ds3231_i2c_id,
 };
-
-
 
 module_i2c_driver(ds3231_driver);
 MODULE_DESCRIPTION("RTC driver for DS3231");
