@@ -14,13 +14,13 @@
 #include <linux/regmap.h>
 
 #define DS3231_REG_SECS		0x00
-#	define DS1307_BIT_CH		0x80
+#	define DS3231_BIT_CH		0x80
 #define DS3231_REG_MIN		0x01
 #define DS3231_REG_HOUR		0X02
 #	define DS3231_BIT_12HR	0X40
 #	define DS3231_BIT_PM	0X20
-#define DS3231_REG_DAY		0X03
-#define DS3231_REG_DATE		0X04
+#define DS3231_REG_WDAY		0X03
+#define DS3231_REG_MDAY		0X04
 #define DS3231_REG_MONTH	0x05
 #define DS3231_REG_YEAR		0X06
 
@@ -48,18 +48,16 @@ struct chip_desc {
 			bool);
 };
 
-static const struct chip_desc chips;
+static const struct chip_desc chips={ 
+	.nvram_offset=8 , 
+	.nvram_size=56 , 
+};
 
 static const struct regmap_config regmap_config = {
-	.reg_bits=8;
-	.val_bits=8;
+	.reg_bits=8,
+	.val_bits=8,
 };
 
-static const struct i2c_device_id ds3231_i2c_id[] = {
-	{"ds3231", ds3231}
-	{}
-};
-MODULE_DEVICE_TABLE( i2c , ds3231_i2c_id);
 
 
 
@@ -87,15 +85,15 @@ static int ds3231_get_time(struct device *dev , struct rtc_time *t)
 	if(tmp & DS3231_BIT_CH)
 		return -EINVAL;
 
-	t->tm_sec = bcd2bin(regs[DS1307_REG_SECS] & 0x7f);
-	t->tm_min = bcd2bin(regs[DS1307_REG_MIN] & 0x7f);
-	tmp = regs[DS1307_REG_HOUR] & 0x3f;
+	t->tm_sec = bcd2bin(regs[DS3231_REG_SECS] & 0x7f);
+	t->tm_min = bcd2bin(regs[DS3231_REG_MIN] & 0x7f);
+	tmp = regs[DS3231_REG_HOUR] & 0x3f;
 	t->tm_hour = bcd2bin(tmp);
-	t->tm_wday = bcd2bin(regs[DS1307_REG_WDAY] & 0x07) - 1;
-	t->tm_mday = bcd2bin(regs[DS1307_REG_MDAY] & 0x3f);
-	tmp = regs[DS1307_REG_MONTH] & 0x1f;
+	t->tm_wday = bcd2bin(regs[DS3231_REG_WDAY] & 0x07) - 1;
+	t->tm_mday = bcd2bin(regs[DS3231_REG_MDAY] & 0x3f);
+	tmp = regs[DS3231_REG_MONTH] & 0x1f;
 	t->tm_mon = bcd2bin(tmp) - 1;
-	t->tm_year = bcd2bin(regs[DS1307_REG_YEAR]) + 100;
+	t->tm_year = bcd2bin(regs[DS3231_REG_YEAR]) + 100;
 
 	if (regs[chip->century_reg] & chip->century_bit &&
 			IS_ENABLED(CONFIG_RTC_DRV_DS1307_CENTURY))
@@ -129,20 +127,20 @@ static int ds3231_set_time(struct device *dev, struct rtc_time *t)
 	if (t->tm_year < 100)
 		return -EINVAL;
 
-	regs[DS1307_REG_SECS] = bin2bcd(t->tm_sec);
-	regs[DS1307_REG_MIN] = bin2bcd(t->tm_min);
-	regs[DS1307_REG_HOUR] = bin2bcd(t->tm_hour);
-	regs[DS1307_REG_WDAY] = bin2bcd(t->tm_wday + 1);
-	regs[DS1307_REG_MDAY] = bin2bcd(t->tm_mday);
-	regs[DS1307_REG_MONTH] = bin2bcd(t->tm_mon + 1);
+	regs[DS3231_REG_SECS] = bin2bcd(t->tm_sec);
+	regs[DS3231_REG_MIN] = bin2bcd(t->tm_min);
+	regs[DS3231_REG_HOUR] = bin2bcd(t->tm_hour);
+	regs[DS3231_REG_WDAY] = bin2bcd(t->tm_wday + 1);
+	regs[DS3231_REG_MDAY] = bin2bcd(t->tm_mday);
+	regs[DS3231_REG_MONTH] = bin2bcd(t->tm_mon + 1);
 
 	/* assume 20YY not 19YY */
 	tmp = t->tm_year - 100;
-	regs[DS1307_REG_YEAR] = bin2bcd(tmp);
+	regs[DS3231_REG_YEAR] = bin2bcd(tmp);
 
 	dev_dbg(dev, "%s: %7ph\n", "write", regs);
 
-	result = regmap_bulk_write(ds1307->regmap, chip->offset, regs,
+	result = regmap_bulk_write(ds3231->regmap, chip->offset, regs,
 			sizeof(regs));
 	if (result) {
 		dev_err(dev, "%s error %d\n", "write", result);
@@ -156,38 +154,49 @@ static int ds3231_set_time(struct device *dev, struct rtc_time *t)
 
 
 
+static const struct rtc_class_ops ds3231_rtc_ops = {
+	.read_time	=	ds3231_get_time ,
+	.set_time	=	ds3231_set_time ,
+};
+
+
+static const struct i2c_device_id ds3231_i2c_id[] = {
+	{"ds3231", ds3231},
+	{},
+};
+MODULE_DEVICE_TABLE( i2c , ds3231_i2c_id);
+
+
 
 static int ds3231_probe(struct i2c_client *client,const struct i2c_device_id *id)
 {
 	struct ds3231 	*ds3231;
-	int 	err =	-ENODEV;
 
 	ds3231 = devm_kzalloc( &client->dev , sizeof(struct ds3231) , GFP_KERNEL);
 	if(!ds3231)
 		return -ENOMEM;
 
-	dev_set_dvrdata( &client->dev , ds3231 );
+	dev_set_drvdata( &client->dev , ds3231 );
 	ds3231->dev = &client->dev;
 	ds3231->name = client->name;
 
 	ds3231->regmap = devm_regmap_init_i2c( client , &regmap_config);
-	if (IS_ERR(ds1307->regmap)) {
-		dev_err(ds1307->dev, "regmap allocation failed\n");
-		return PTR_ERR(ds1307->regmap);
+	if (IS_ERR(ds3231->regmap)) {
+		dev_err(ds3231->dev, "regmap allocation failed\n");
+		return PTR_ERR(ds3231->regmap);
 	}	
 
 	i2c_set_clientdata( client , ds3231);
-
-
+	return 0;
 }
 
 
 struct i2c_driver ds3231_driver={
 	.driver={
 		.name	=	"ds3231",
-	}:
+	},
 	.probe		=	ds3231_probe,
-		.id_table	=	ds3231_i2c_id,
+	.id_table	=	ds3231_i2c_id,
 };
 
 
