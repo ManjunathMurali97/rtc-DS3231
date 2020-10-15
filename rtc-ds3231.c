@@ -16,14 +16,22 @@
 #define DS3231_REG_SECS		0x00
 #	define DS3231_BIT_CH		0x80
 #define DS3231_REG_MIN		0x01
-#define DS3231_REG_HOUR		0X02
-#	define DS3231_BIT_12HR	0X40
-#	define DS3231_BIT_PM	0X20
-#define DS3231_REG_WDAY		0X03
-#define DS3231_REG_MDAY		0X04
+#define DS3231_REG_HOUR		0x02
+#	define DS3231_BIT_12HR	0x40
+#	define DS3231_BIT_PM	0x20
+#define DS3231_REG_WDAY		0x03
+#define DS3231_REG_MDAY		0x04
 #define DS3231_REG_MONTH	0x05
-#define DS3231_REG_YEAR		0X06
+#define DS3231_REG_YEAR		0x06
 
+#define DS3231_REG_CONTROL 	0x0e
+#	define DS3231_BIT_EOSC  0x80
+
+#define DS3231_REG_STATUS	0x0f
+#	define DS3231_BIT_OSF	0x80
+
+
+/////////////////////////////////////////////////////
 
 struct ds3231 {
 	struct device 		*dev;
@@ -143,7 +151,6 @@ static int ds3231_set_time(struct device *dev, struct rtc_time *t)
 }
 
 
-
 static const struct rtc_class_ops ds3231_rtc_ops = {
 	.read_time	=	ds3231_get_time ,
 	.set_time	=	ds3231_set_time ,
@@ -151,17 +158,37 @@ static const struct rtc_class_ops ds3231_rtc_ops = {
 
 
 static const struct i2c_device_id ds3231_i2c_id[] = {
-	{"ds3231", 0 },
-	{},
+	{"ds3231", 8 },
+	{ }
 };
 MODULE_DEVICE_TABLE( i2c , ds3231_i2c_id);
 
+#ifdef CONFIG_ACPI
+static const struct acpi_device_id ds3231_acpi_ids[] = {
+	{ .id = "DS3231", .driver_data = 8 },
+	{ }
+};
+MODULE_DEVICE_TABLE( acpi , ds3231_acpi_ids);
+#endif
 
+#ifdef CONFIG_OF
+static const struct of_device_id ds3231_of_match[] = {
+	{
+		.compatible = "maxim,ds3231",
+		.data = (void *)8
+	},
+	{ }
+};
+MODULE_DEVICE_TABLE( of , ds3231_of_match );
+#endif
 
+/////////////////////////////////////////////////////////////////////////////////
 static int ds3231_probe(struct i2c_client *client,const struct i2c_device_id *id)
 {
 	struct ds3231 	*ds3231;
-
+	unsigned int 	regs[8];
+	int 		err= -ENODEV;
+	const struct chip_desc *chip;
 	ds3231 = devm_kzalloc( &client->dev , sizeof(struct ds3231) , GFP_KERNEL);
 	if(!ds3231)
 		return -ENOMEM;
@@ -177,13 +204,45 @@ static int ds3231_probe(struct i2c_client *client,const struct i2c_device_id *id
 	}	
 
 	i2c_set_clientdata( client , ds3231);
+
+	/* Reading Control and Status registers of rtc*/	
+	err = regmap_bulk_read( ds3231->regmap , DS3231_REG_CONTROL , regs , 2 );
+	if(err){
+		dev_dbg( ds3231->dev , "Read error %d\n" , err);
+		return err;
+	}
+
+	/* If oscillator is off , turn it on , so clock can tick */
+	if( regs[0] & DS3231_BIT_EOSC)
+		regs[0] &= ~DS3231_BIT_EOSC;
+	
+	regmap_write( ds3231->regmap , DS3231_REG_CONTROL , regs[0] );	
+
+	/*oscillator fault ? clear flag and warn */
+	if( regs[1] & DS3231_BIT_OSF){
+		regmap_write( ds3231->regmap , DS3231_REG_STATUS , regs[1] & ~DS3231_BIT_OSF);
+		dev_warn( ds3231->dev , "SET TIME!\n");
+	}
+
+	/* read RTC registers */
+	err = regmap_bulk_read( ds3231->regmap , chip->offset , regs , sizeof(regs) );
+	if (err) {
+		dev_dbg(ds3231->dev, "read error %d\n", err);
+		return err;
+	}
+
+
+
+
 	return 0;
 }
 
 
 struct i2c_driver ds3231_driver={
 	.driver={
-		.name	=	"ds3231",
+		.name			= "rtc-ds3231",
+		.of_match_table		= of_match_ptr(ds3231_of_match),
+		.acpi_match_table 	= ACPI_PTR(ds3231_acpi_ids),
 	},
 	.probe		=	ds3231_probe,
 	.id_table	=	ds3231_i2c_id,
