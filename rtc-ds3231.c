@@ -190,7 +190,7 @@ static int ds3231_probe(struct i2c_client *client,const struct i2c_device_id *id
 	struct ds3231 		*ds3231;
 	unsigned int 		regs[8];
 	int 			err= -ENODEV;
-	const struct chip_desc 	*chip;
+	const struct chip_desc 	*chip=&chips;
 	int 			tmp;
 
 	ds3231 = devm_kzalloc( &client->dev , sizeof(struct ds3231) , GFP_KERNEL);
